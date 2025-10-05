@@ -218,7 +218,7 @@ jobs:
       - name: Create installer
         run: |
           7z x -o"dist/windows/" "dist/windows/NSISPlugins.zip"
-          makensis /DQBT_DIST_DIR="../../upload/qBittorrent" /DQBT_CPU_ARCH=${{ matrix.config.arch }} /WX dist/windows/qbittorrent.nsi
+          makensis /DQBT_CPU_ARCH="${{ matrix.config.arch }}" /DQBT_DIST_DIR="../../upload/qBittorrent" /WX dist/windows/qbittorrent.nsi
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
