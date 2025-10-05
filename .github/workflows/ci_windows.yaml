@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   ci:
-    name: Build (${{ matrix.config.arch }}+${{ matrix.libt_version }})
+    name: Build (${{ matrix.libt_version }}, ${{ matrix.config.arch }})
     runs-on: ${{ matrix.config.os }}
     permissions:
       actions: write
