@@ -111,6 +111,14 @@ jobs:
           cd "${{ env.boost_path }}"
           #.\bootstrap.bat
 
+          if ("${{ matrix.config.arch }}" -eq "arm64") {
+            # ARM64 交叉编译时使用 x64 版本的工具
+            $b2_exe = "${{ env.vcpkg_path }}/installed/x64-windows-static-md-release/tools/boost-build/b2.exe"
+          } else {
+            # x64 原生编译
+            $b2_exe = "${{ env.vcpkg_path }}/installed/${{ matrix.config.arch }}-windows-static-md-release/tools/boost-build/b2.exe"
+          }
+
           $b2_args = @(
             "stage",
             "toolset=msvc",
@@ -124,7 +132,7 @@ jobs:
             $b2_args += "architecture=arm"
           }
           
-          & "${{ env.vcpkg_path }}/installed/${{ matrix.config.arch }}-windows-static-md-release/tools/boost-build/b2.exe" @b2_args
+          & $b2_exe @b2_args
 
       - name: Install Qt (host tools) for cross-compilation
         if: matrix.config.arch == 'arm64'
