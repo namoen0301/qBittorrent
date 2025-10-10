@@ -79,6 +79,10 @@ jobs:
             "boost-build:${{ matrix.config.arch }}-windows-static-md-release",
             "openssl:${{ matrix.config.arch }}-windows-static-md-release",
             "zlib:${{ matrix.config.arch }}-windows-static-md-release"
+          # ARM64 交叉编译时也需要安装 x64 的构建工具
+          if ("${{ matrix.config.arch }}" -eq "arm64") {
+            $packages += "boost-build:x64-windows-static-md-release"
+          }
           ${{ env.vcpkg_path }}/vcpkg.exe upgrade `
             --no-dry-run `
             --overlay-triplets="${{ env.vcpkg_path }}/triplets_overlay"
@@ -106,7 +110,7 @@ jobs:
           move "${{ github.workspace }}/../boost_*" "${{ env.boost_path }}"
           cd "${{ env.boost_path }}"
           #.\bootstrap.bat
-          
+
           $b2_args = @(
             "stage",
             "toolset=msvc",
