@@ -23,7 +23,7 @@ jobs:
         - os: windows-latest
           arch: x64
           qt_arch: win64_msvc2022_64
-        - os: windows-11-arm
+        - os: windows-latest
           arch: arm64
           qt_arch: win64_msvc2022_arm64
 
@@ -41,7 +41,7 @@ jobs:
       - name: Setup devcmd
         uses: ilammy/msvc-dev-cmd@v1
         with:
-          arch: ${{ matrix.config.arch }}
+          arch: ${{ matrix.config.arch == 'arm64' && 'amd64_arm64' || matrix.config.arch }}
 
       - name: Install build tools
         run: |
@@ -106,19 +106,55 @@ jobs:
           move "${{ github.workspace }}/../boost_*" "${{ env.boost_path }}"
           cd "${{ env.boost_path }}"
           #.\bootstrap.bat
-          ${{ env.vcpkg_path }}/installed/${{ matrix.config.arch }}-windows-static-md-release/tools/boost-build/b2.exe `
-            stage `
-            toolset=msvc `
-            --stagedir=.\ `
-            --with-headers
+          
+          $b2_args = @(
+            "stage",
+            "toolset=msvc",
+            "--stagedir=.\",
+            "--with-headers"
+          )
+          
+          # ARM64 cross compile
+          if ("${{ matrix.config.arch }}" -eq "arm64") {
+            $b2_args += "address-model=64"
+            $b2_args += "architecture=arm"
+          }
+          
+          & "${{ env.vcpkg_path }}/installed/${{ matrix.config.arch }}-windows-static-md-release/tools/boost-build/b2.exe" @b2_args
 
-      - name: Install Qt
+      - name: Install Qt (host tools) for cross-compilation
+        if: matrix.config.arch == 'arm64'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.9.1"
+          arch: win64_msvc2022_64  # x64 主机工具
+          archives: qttools
+          cache: true
+          set-env: false  # 不设置环境变量
+          dir: "${{ runner.temp }}/qt-host"
+      
+      - name: Install Qt (target libraries)
         uses: jurplel/install-qt-action@v4
         with:
           version: "6.9.1"
           arch: ${{ matrix.config.qt_arch }}
           archives: qtbase qtsvg qttools
           cache: true
+
+      - name: Debug environment (ARM64)
+        if: matrix.config.arch == 'arm64'
+        run: |
+          echo "=== Environment Variables ==="
+          echo "Qt_ROOT_DIR: ${{ env.Qt_ROOT_DIR }}"
+          echo "VCPKG_ROOT: ${{ env.vcpkg_path }}"
+          echo "=== Compiler Check ==="
+          cl.exe 2>&1 | findstr "ARM64\|x64"
+          echo "=== Qt Tools Check ==="
+          if (Test-Path "${{ runner.temp }}/qt-host/Qt/6.9.1/win64_msvc2022_64/bin/moc.exe") {
+            echo "Host Qt tools found"
+          } else {
+            echo "Host Qt tools NOT found"
+          }
 
       - name: Install libtorrent
         run: |
@@ -131,41 +167,69 @@ jobs:
           cd ${{ env.libtorrent_path }}
           $env:CXXFLAGS+=" /guard:cf"
           $env:LDFLAGS+=" /GUARD:CF"
-          cmake `
-            -B build `
-            -G "Ninja" `
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
-            -DCMAKE_CXX_STANDARD=20 `
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON `
-            -DCMAKE_INSTALL_PREFIX="${{ env.libtorrent_path }}/install" `
-            -DCMAKE_TOOLCHAIN_FILE="${{ env.vcpkg_path }}/scripts/buildsystems/vcpkg.cmake" `
-            -DBOOST_ROOT="${{ env.boost_path }}/lib/cmake" `
-            -DBUILD_SHARED_LIBS=OFF `
-            -Ddeprecated-functions=OFF `
-            -Dstatic_runtime=OFF `
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.config.arch }}-windows-static-md-release
+          
+          $cmake_args = @(
+            "-B", "build",
+            "-G", "Ninja",
+            "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+            "-DCMAKE_CXX_STANDARD=20",
+            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+            "-DCMAKE_INSTALL_PREFIX=${{ env.libtorrent_path }}/install",
+            "-DCMAKE_TOOLCHAIN_FILE=${{ env.vcpkg_path }}/scripts/buildsystems/vcpkg.cmake",
+            "-DBOOST_ROOT=${{ env.boost_path }}/lib/cmake",
+            "-DBUILD_SHARED_LIBS=OFF",
+            "-Ddeprecated-functions=OFF",
+            "-Dstatic_runtime=OFF",
+            "-DVCPKG_TARGET_TRIPLET=${{ matrix.config.arch }}-windows-static-md-release"
+          )
+          
+          # ARM64 cross compile
+          if ("${{ matrix.config.arch }}" -eq "arm64") {
+            $cmake_args += "-DCMAKE_SYSTEM_NAME=Windows"
+            $cmake_args += "-DCMAKE_SYSTEM_PROCESSOR=ARM64"
+          }
+          
+          cmake @cmake_args
           cmake --build build
           cmake --install build
-
+    
       - name: Build qBittorrent
         run: |
           $env:CXXFLAGS+="/DQT_FORCE_ASSERTS /WX"
-          cmake `
-            -B build `
-            -G "Ninja" `
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON `
-            -DCMAKE_TOOLCHAIN_FILE="${{ env.vcpkg_path }}/scripts/buildsystems/vcpkg.cmake" `
-            -DBOOST_ROOT="${{ env.boost_path }}/lib/cmake" `
-            -DLibtorrentRasterbar_DIR="${{ env.libtorrent_path }}/install/lib/cmake/LibtorrentRasterbar" `
-            -DMSVC_RUNTIME_DYNAMIC=ON `
-            -DTESTING=ON `
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.config.arch }}-windows-static-md-release `
-            -DVERBOSE_CONFIGURE=ON `
-            --graphviz=build/target_graph.dot
+          
+          $cmake_args = @(
+            "-B", "build",
+            "-G", "Ninja",
+            "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+            "-DCMAKE_TOOLCHAIN_FILE=${{ env.vcpkg_path }}/scripts/buildsystems/vcpkg.cmake",
+            "-DBOOST_ROOT=${{ env.boost_path }}/lib/cmake",
+            "-DLibtorrentRasterbar_DIR=${{ env.libtorrent_path }}/install/lib/cmake/LibtorrentRasterbar",
+            "-DMSVC_RUNTIME_DYNAMIC=ON",
+            "-DTESTING=ON",
+            "-DVCPKG_TARGET_TRIPLET=${{ matrix.config.arch }}-windows-static-md-release",
+            "-DVERBOSE_CONFIGURE=ON",
+            "--graphviz=build/target_graph.dot"
+          )
+          
+          # ARM64 cross compile
+          if ("${{ matrix.config.arch }}" -eq "arm64") {
+            $cmake_args += "-DCMAKE_SYSTEM_NAME=Windows"
+            $cmake_args += "-DCMAKE_SYSTEM_PROCESSOR=ARM64"
+            # 指定主机工具路径
+            $cmake_args += "-DQT_HOST_PATH=${{ runner.temp }}/qt-host/Qt/6.9.1/win64_msvc2022_64"
+            # 或者显式设置工具路径
+            $cmake_args += "-DQT_HOST_PATH_CMAKE_DIR=${{ runner.temp }}/qt-host/Qt/6.9.1/win64_msvc2022_64"
+          }
+          
+          cmake @cmake_args
           cmake --build build --target qbt_update_translations
           cmake --build build
-          cmake --build build --target check
+          
+          # when use arm64 cross compile, skip test
+          if ("${{ matrix.config.arch }}" -ne "arm64") {
+            cmake --build build --target check
+          }
 
       - name: Prepare build artifacts
         run: |
