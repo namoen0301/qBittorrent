@@ -134,25 +134,24 @@ jobs:
           
           & $b2_exe @b2_args
 
-      - name: Install Qt (host tools) for cross-compilation
-        if: matrix.config.arch == 'arm64'
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.9.1"
-          arch: win64_msvc2022_64  # x64 主机工具
-          archives: qttools
-          cache: true
-          set-env: false  # 不设置环境变量
-          dir: "${{ runner.temp }}/qt-host"
-      
-      - name: Install Qt (target libraries)
+      - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: "6.9.1"
           arch: ${{ matrix.config.qt_arch }}
           archives: qtbase qtsvg qttools
           cache: true
-
+      
+      - name: Install Qt host tools (ARM64 only)
+        if: matrix.config.arch == 'arm64'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.9.1"
+          arch: win64_msvc2022_64
+          archives: qttools
+          cache: true
+          dir: "${{ runner.temp }}/qt-host-tools"
+          
       - name: Debug environment (ARM64)
         if: matrix.config.arch == 'arm64'
         run: |
@@ -228,10 +227,10 @@ jobs:
           if ("${{ matrix.config.arch }}" -eq "arm64") {
             $cmake_args += "-DCMAKE_SYSTEM_NAME=Windows"
             $cmake_args += "-DCMAKE_SYSTEM_PROCESSOR=ARM64"
-            # 指定主机工具路径
-            $cmake_args += "-DQT_HOST_PATH=${{ runner.temp }}/qt-host/Qt/6.9.1/win64_msvc2022_64"
-            # 或者显式设置工具路径
-            $cmake_args += "-DQT_HOST_PATH_CMAKE_DIR=${{ runner.temp }}/qt-host/Qt/6.9.1/win64_msvc2022_64"
+            $hostQtPath = Get-ChildItem "$env:RUNNER_WORKSPACE" -Filter "*Qt*" -Directory | Where-Object { $_.Name -like "*6.9.1*win64_msvc2022_64*" } | Select-Object -First 1
+            if ($hostQtPath) {
+                $cmake_args += "-DQT_HOST_PATH=$($hostQtPath.FullName)"
+            }
           }
           
           cmake @cmake_args
